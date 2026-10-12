@@ -7,6 +7,7 @@
  */
 import type { AgentLogEntry } from './agentLogEntry';
 import type { AgentRunResultRoute } from './agentRunResultRoute';
+import type { AgentRunResultRouteMode } from './agentRunResultRouteMode';
 import type { AgentRunResultStatus } from './agentRunResultStatus';
 import type { AgentRunResultUsage } from './agentRunResultUsage';
 import type { AgentRunResultVerification } from './agentRunResultVerification';
@@ -15,6 +16,9 @@ import type { TextStep } from './textStep';
 export interface AgentRunResult {
   runId: string;
   route: AgentRunResultRoute;
+  routeMode: AgentRunResultRouteMode;
+  modelId: string;
+  fixtureHash: string;
   status: AgentRunResultStatus;
   log: AgentLogEntry[];
   textSteps: TextStep[];

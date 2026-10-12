@@ -5,12 +5,19 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { AgentUsageCall } from './agentUsageCall';
 
 export type AgentRunResultUsage = {
-  simulated: true;
-  inputTokens: number;
-  outputTokens: number;
+  simulated: boolean;
+  /** @nullable */
+  promptTokens: number | null;
+  /** @nullable */
+  outputTokens: number | null;
+  /** @nullable */
+  cachedTokens: number | null;
   modelCalls: number;
   elapsedMs: number;
-  estimatedCostUsd: number;
+  /** @nullable */
+  estimatedCostUsd: number | null;
+  calls: AgentUsageCall[];
 };

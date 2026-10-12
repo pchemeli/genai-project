@@ -7,11 +7,12 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import {
-  getGetLibraryStateQueryKey, getReadDueDateQueryKey, useGetLibraryState, useRenewLoan,
+  getGetAgentStatusQueryKey, getGetLibraryStateQueryKey, getReadDueDateQueryKey,
+  useGetAgentStatus, useGetLibraryState, useRenewLoan,
   useReserveTitle, useCancelHold, useReadDueDate, useResetLibrary, useStartTextSession,
   useInputTextSession, useRunAgent,
 } from '@workspace/api-client-react';
-import type { AgentRunResult, ActionResult, TextSessionResult } from '@workspace/api-client-react';
+import type { AgentRunResult, ActionResult, TextSessionResult, AgentStatus } from '@workspace/api-client-react';
 import {
   ArrowRight, BookOpen, Check, CircleHelp, Clock3, LibraryBig, LoaderCircle,
   RotateCcw, Search, ShieldCheck, Signal, Smartphone, Sparkles, X,
@@ -47,6 +48,33 @@ function displayDateTime(value: Date | string) {
   return Number.isNaN(date.valueOf()) ? String(value) : date.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function getTokenComparison(
+  text?: AgentRunResult,
+  web?: AgentRunResult,
+  textPrompt = '',
+  webPrompt = '',
+) {
+  if (!text || !web) return 'No savings computed yet. Both live routes must run the same prompt.';
+  if (textPrompt !== webPrompt) return 'No savings computed. The two route runs used different prompts.';
+  if (text.fixtureHash !== web.fixtureHash) return 'No savings computed. Reset the fixture and rerun both routes from the same starting records.';
+  const verifiedLiveRun = (result: AgentRunResult) =>
+    result.status === 'completed' &&
+    result.verification.passed &&
+    result.routeMode === 'live' &&
+    !result.usage.simulated &&
+    result.usage.promptTokens !== null &&
+    result.usage.outputTokens !== null;
+  if (!verifiedLiveRun(text) || !verifiedLiveRun(web)) {
+    return 'No savings computed. Both live route runs must complete and pass committed-record verification.';
+  }
+  const textTotal = text.usage.promptTokens! + text.usage.outputTokens!;
+  const webTotal = web.usage.promptTokens! + web.usage.outputTokens!;
+  const reduction = textTotal - webTotal;
+  if (reduction === 0) return `0 tokens saved; both routes used ${textTotal.toLocaleString()} input + output tokens.`;
+  if (reduction > 0) return `${reduction.toLocaleString()} tokens saved (${Math.round(reduction / Math.max(textTotal, 1) * 100)}% fewer than the text route).`;
+  return `−${Math.abs(reduction).toLocaleString()} tokens saved; the visual route used ${Math.abs(reduction).toLocaleString()} more tokens than the text route.`;
+}
+
 function Shell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   return <div className="app-shell">
@@ -66,6 +94,7 @@ function Shell({ children }: { children: ReactNode }) {
 function Runner() {
   const queryClient = useQueryClient();
   const libraryQuery = useGetLibraryState();
+  const agentStatusQuery = useGetAgentStatus({ query: { queryKey: getGetAgentStatusQueryKey(), refetchInterval: 15000 } });
   const reset = useResetLibrary();
   const startText = useStartTextSession();
   const inputText = useInputTextSession();
@@ -76,6 +105,7 @@ function Runner() {
   const [sessionError, setSessionError] = useState('');
   const [runnerError, setRunnerError] = useState('');
   const [lastTextPrompt, setLastTextPrompt] = useState('');
+  const [lastWebPrompt, setLastWebPrompt] = useState('');
   const [phoneFrame, setPhoneFrame] = useState({
     menu: 'Start a text session or run a prompt to see the API menu.',
     digit: '',
@@ -86,10 +116,14 @@ function Runner() {
   function run(route: 'text' | 'web') {
     if (!promptText.trim()) return;
     setRunnerError('');
-    if (route === 'text') setLastTextPrompt(promptText);
+    setAgentResults(prev => ({ ...prev, [route]: undefined }));
+    if (route === 'text') setLastTextPrompt(promptText.trim());
+    else setLastWebPrompt(promptText.trim());
     runAgent.mutate({ data: { prompt: promptText.trim(), route, idempotencyKey: makeKey() } }, {
       onSuccess: result => {
         setAgentResults(prev => ({ ...prev, [route]: result }));
+        void queryClient.invalidateQueries({ queryKey: getGetLibraryStateQueryKey() });
+        void queryClient.invalidateQueries({ queryKey: getGetAgentStatusQueryKey() });
         if (route === 'text') {
           setTextSession(null);
           if (result.textSteps.length === 0) {
@@ -146,6 +180,10 @@ function Runner() {
     });
   }
   const userName = libraryQuery.data?.user.displayName;
+  const agentStatus = agentStatusQuery.data;
+  const runLimitReached = Boolean(agentStatus && agentStatus.runsInLastHour >= agentStatus.maximumRunsPerHour);
+  const runDisabled = runAgent.isPending || Boolean(agentStatus?.runInProgress) || runLimitReached || (agentStatus !== undefined && !agentStatus.modelConfigured);
+  const tokenComparison = getTokenComparison(agentResults.text, agentResults.web, lastTextPrompt, lastWebPrompt);
   return <>
   <main className="page runner-page">
     <section className="runner-intro">
@@ -153,8 +191,8 @@ function Runner() {
       <div className="intro-grid">
         <div><h1>One request.<br /><em>Two ways through.</em></h1></div>
         <div className="intro-copy">
-          <p>Watch a simulated library agent carry the same student request through a text menu and a familiar website. Every outcome comes from the API and can be checked against Shelf’s state.</p>
-          <div className="intro-meta"><span><ShieldCheck size={15} /> Observable by design</span><span><span className="mono">SHELF</span> · Fictional library</span></div>
+          <p>Watch Gemini complete the same fictional Shelf task through a text-menu web simulation and a screenshot-driven website agent. The server validates and verifies every committed result.</p>
+          <div className="intro-meta"><span><ShieldCheck size={15} /> Server-verified actions</span><span><span className="mono">SHELF</span> · Fictional library</span><span className="mono">MODEL_ID · {agentStatus?.modelId ?? 'checking'}</span></div>
         </div>
       </div>
       <div className="experiment-strip">
@@ -172,17 +210,17 @@ function Runner() {
     </section>
 
     <section className="comparison">
-      <div className="compare-title"><div><div className="eyebrow">SIMULATED AGENT · SHARED FIXTURE</div><h2>Two phone interfaces</h2></div><div className="prompt-chip"><span className="chip-dot" /> {promptText}</div></div>
+      <div className="compare-title"><div><div className="eyebrow">GEMINI · SHARED FIXTURE · {agentStatus ? `${agentStatus.runsInLastHour}/${agentStatus.maximumRunsPerHour} RUNS THIS HOUR` : 'CHECKING RUN LIMIT'}</div><h2>Two phone interfaces</h2></div><div className="prompt-chip"><span className="chip-dot" /> {promptText}</div></div>
       {runnerError && <div className="error-banner" role="alert" data-testid="status-runner-error"><CircleHelp size={17} />{runnerError}</div>}
       <div className="route-grid">
         <article className="route-panel chat-panel">
-          <header className="route-header"><div className="route-symbol text-symbol"><Sparkles size={18} /></div><div><div className="route-overline">ROUTE A <span className="route-divider">/</span> AGENT CHAT</div><h3>Prompt and agent log</h3></div><span className="simulation-tag">SIMULATED AGENT</span></header>
+          <header className="route-header"><div className="route-symbol text-symbol"><Sparkles size={18} /></div><div><div className="route-overline">ROUTE A <span className="route-divider">/</span> GEMINI TEXT AGENT</div><h3>Prompt and agent log</h3></div><span className={`simulation-tag ${agentStatus?.modelConfigured ? 'live-tag' : ''}`}>{agentStatus?.modelConfigured ? `LIVE · ${agentStatus.modelId}` : 'GEMINI NOT CONFIGURED'}</span></header>
           <div className="chat-phone-stage">
             <div className="phone-shell">
               <div className="phone-camera" />
               <div className="phone-screen chat-phone-screen">
                 <div className="phone-status"><span>9:41</span><span><Signal size={13} /> <span className="signal-bars">▮▮▮</span></span></div>
-                <div className="chat-contact"><span className="mini-mark">Q</span><span><b>Qurus agent</b><small>SIMULATED · NO LLM</small></span></div>
+                 <div className="chat-contact"><span className="mini-mark">Q</span><span><b>Qurus agent</b><small>{agentStatus?.modelConfigured ? `GEMINI · ${agentStatus.modelId}` : 'MODEL NOT CONFIGURED'}</small></span></div>
                 <div className="chat-history" data-testid="text-agent-chat">
                   {lastTextPrompt ? <div className="chat-message user-message">{lastTextPrompt}</div> : <div className="chat-welcome"><Sparkles size={18} /><span>Type a library task below. The agent’s actual run log will appear here.</span></div>}
                   {agentResults.text?.log.map((entry, i) => <div className={`chat-message agent-message log-${entry.kind}`} key={`${i}-${entry.message}`} data-testid={`chat-log-${i}`}>{entry.message}</div>)}
@@ -196,13 +234,13 @@ function Runner() {
           </div>
           <form className="chat-compose" onSubmit={event => { event.preventDefault(); run('text'); }}>
             <textarea value={promptText} onChange={event => setPromptText(event.target.value)} placeholder="Ask Shelf to renew, reserve, cancel, or check a due date…" rows={2} aria-label="Library task prompt" data-testid="input-agent-prompt" />
-            <button className="button button-primary" type="submit" disabled={runAgent.isPending || !promptText.trim()} data-testid="button-run-text-agent">{runAgent.isPending ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}Send to text route</button>
+            <button className="button button-primary" type="submit" disabled={runDisabled || !promptText.trim()} data-testid="button-run-text-agent">{runAgent.isPending ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}Send to text route</button>
           </form>
-          <div className="chat-footnote">Agent decisions are scripted for this demo; no model or API key is connected.</div>
+          <div className="chat-footnote">Gemini chooses each digit from the current menu. Shelf’s server performs and validates the action; this menu is a web simulation, not carrier USSD.</div>
         </article>
 
         <article className="route-panel keypad-panel">
-          <header className="route-header"><div className="route-symbol web-symbol"><Smartphone size={18} /></div><div><div className="route-overline">ROUTE A <span className="route-divider">/</span> MENU INTERACTION</div><h3>Text-menu phone</h3></div><span className="simulation-tag">WEB SIMULATION</span></header>
+          <header className="route-header"><div className="route-symbol web-symbol"><Smartphone size={18} /></div><div><div className="route-overline">ROUTE A <span className="route-divider">/</span> TEXT MENU</div><h3>USSD-style web session</h3></div><span className="simulation-tag">NOT CARRIER USSD</span></header>
           <div className="phone-stage">
             <div className="phone-shell keypad-phone">
               <div className="phone-camera" />
@@ -225,7 +263,7 @@ function Runner() {
           </div>
           <div className="route-actions">
             <button className="button button-quiet" onClick={beginText} disabled={startText.isPending} data-testid="button-start-text-session">{startText.isPending ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />}Start manual session</button>
-            <span className="keypad-explain">The simulated agent dials *123# and presses menu digits above.</span>
+            <span className="keypad-explain">Gemini dials *123# and chooses visible menu digits. This is a browser simulation.</span>
           </div>
           {sessionError && <div className="inline-error" role="alert" data-testid="status-text-session-error">{sessionError}</div>}
           {textSession && <div className={`session-state ${textSession.error ? 'has-error' : ''}`} data-testid="status-text-session"><span>API SESSION</span><b>{textSession.screen.replace('_', ' ').toUpperCase()}</b><span>{textSession.ended ? 'ENDED' : 'ACTIVE'}</span></div>}
@@ -234,18 +272,22 @@ function Runner() {
     </section>
 
   </main>
-  <ShelfLibrary embedded prompt={promptText} onRunWeb={() => run('web')} webResult={agentResults.web} webPending={runAgent.isPending} />
+  <ShelfLibrary embedded prompt={agentResults.web ? lastWebPrompt : promptText} onRunWeb={() => run('web')} webResult={agentResults.web} webPending={runDisabled} visualMode={agentStatus?.visualRouteMode ?? 'checking'} visualUnavailableReason={agentStatus?.visualUnavailableReason ?? null} />
   <section className="page usage-section">
-    <div className="usage-intro"><div className="eyebrow">TRANSPARENCY, NOT TELEMETRY</div><h2>Model usage, with context.</h2><p>No model is connected. Token counts and cost are simulated estimates; the elapsed value is the measured duration of the local simulation only.</p><button className="reset-link" onClick={() => { setAgentResults({}); setLastTextPrompt(''); setTextSession(null); setSessionError(''); setRunnerError(''); setPhoneFrame({ menu: 'Start a text session or run a prompt to see the API menu.', digit: '', typing: false, error: '' }); reset.mutate(undefined, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetLibraryStateQueryKey() }), onError: e => setRunnerError(errorMessage(e)) }); }} disabled={reset.isPending} data-testid="button-reset-fixture">{reset.isPending ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} Reset fixture state</button></div>
+    <div className="usage-intro"><div className="eyebrow">PROVIDER USAGE · SERVER-SIDE</div><h2>Measured model usage.</h2><p>Token counts come from Gemini usageMetadata. Estimated cost stays unknown because no rates are configured. Reset restores library records and keeps run measurements so both routes can use the same fixture.</p><button className="reset-link" onClick={() => { setTextSession(null); setSessionError(''); setRunnerError(''); setPhoneFrame({ menu: 'Start a text session or run a prompt to see the API menu.', digit: '', typing: false, error: '' }); reset.mutate(undefined, { onSuccess: () => { void queryClient.invalidateQueries({ queryKey: getGetLibraryStateQueryKey() }); void queryClient.invalidateQueries({ queryKey: getGetAgentStatusQueryKey() }); }, onError: e => setRunnerError(errorMessage(e)) }); }} disabled={reset.isPending || runAgent.isPending || Boolean(agentStatus?.runInProgress)} data-testid="button-reset-fixture">{reset.isPending ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} Reset fixture state</button></div>
     <div className="usage-columns"><UsageCard title="TEXT-MENU PHONE" result={agentResults.text} testId="usage-text" /><UsageCard title="VISUAL WEBSITE" result={agentResults.web} testId="usage-web" /></div>
+    <div className="token-comparison" data-testid="token-comparison"><span>TOKEN REDUCTION · INPUT + OUTPUT</span><b>{tokenComparison}</b></div>
   </section>
   </>;
 }
 
 function AgentOutput({ result, route }: { result?: AgentRunResult; route: string }) {
   if (!result) return <div className="agent-empty" data-testid={`agent-log-${route}`}><Sparkles size={15} /><span>Agent log appears here after a run. No transcript is pre-filled.</span></div>;
+  const routeLabel = result.routeMode === 'live'
+    ? `GEMINI LIVE · ${result.modelId}`
+    : 'SIMULATED · SCREENSHOT ROUTE UNAVAILABLE';
   return <div className="agent-output" data-testid={`agent-log-${route}`}>
-    <div className="agent-result-head"><span className="agent-result-label">SIMULATED AGENT LOG <span className="run-id">{result.runId}</span></span><span className={`run-status status-${result.status}`} data-testid={`status-agent-${route}`}>{result.status}</span></div>
+    <div className="agent-result-head"><span className="agent-result-label">{routeLabel} <span className="run-id">{result.runId}</span></span><span className={`run-status status-${result.status}`} data-testid={`status-agent-${route}`}>{result.status}</span></div>
     <div className="log-list">{result.log.map((entry, i) => <div key={`${i}-${entry.message}`} className={`log-entry log-${entry.kind}`} data-testid={`log-${route}-${i}`}><span className="log-mark">{entry.kind === 'success' ? '✓' : entry.kind === 'error' ? '!' : entry.kind === 'action' ? '→' : '·'}</span><span>{entry.message}</span></div>)}</div>
     <div className={`verification ${result.verification.passed ? 'passed' : 'not-passed'}`} data-testid={`verification-${route}`}><ShieldCheck size={15} /><span><b>{result.verification.passed ? 'VERIFICATION PASSED' : 'VERIFICATION NOT PASSED'}</b>{result.verification.message}</span></div>
   </div>;
@@ -253,17 +295,41 @@ function AgentOutput({ result, route }: { result?: AgentRunResult; route: string
 
 function UsageCard({ title, result, testId }: { title: string; result?: AgentRunResult; testId: string }) {
   const usage = result?.usage;
-  const values: [string, string][] = usage ? [
-    ['Input tokens (simulated estimate)', String(usage.inputTokens)], ['Output tokens (simulated estimate)', String(usage.outputTokens)],
-    ['Model calls (actual)', String(usage.modelCalls)], ['Simulation runtime (measured)', `${usage.elapsedMs} ms`],
-    ['Cost (simulated estimate)', `$${usage.estimatedCostUsd.toFixed(4)}`],
+  const simulated = result?.routeMode === 'simulated' || usage?.simulated === true;
+  const measurementStamp = !result ? 'AWAITING' : simulated ? 'SIMULATED' : 'MEASURED';
+  const measurementStampClass = !result ? 'awaiting-stamp' : simulated ? '' : 'measured-stamp';
+  const tokenCount = (total: number | null | undefined, field: 'promptTokens' | 'outputTokens' | 'cachedTokens') => {
+    if (total != null) return total.toLocaleString();
+    const calls = usage?.calls ?? [];
+    const observed = calls
+      .map(call => call[field])
+      .filter((value): value is number => typeof value === 'number');
+    if (!observed.length) return field === 'cachedTokens' && calls.length > 0 ? 'Not reported' : 'Unknown';
+    const partialTotal = observed.reduce((sum, value) => sum + value, 0);
+    const unavailable = calls.length - observed.length;
+    return `${partialTotal.toLocaleString()} observed${unavailable ? ` · ${unavailable} call${unavailable === 1 ? '' : 's'} unavailable` : ''}`;
+  };
+  const callsWithoutMetadata = usage?.calls.filter(call => call.providerUsageMetadata == null).length ?? 0;
+  const values: [string, string][] = usage ? simulated ? [
+    ['Input tokens (simulated)', '—'],
+    ['Output tokens (simulated)', '—'],
+    ['Model calls (simulated)', String(usage.modelCalls)],
+    ['Elapsed time (simulated check)', `${usage.elapsedMs} ms`],
+    ['Estimated cost (estimate)', usage.estimatedCostUsd == null ? 'Unknown' : `$${usage.estimatedCostUsd.toFixed(6)}`],
+  ] : [
+    ['Input tokens (measured)', tokenCount(usage.promptTokens, 'promptTokens')],
+    ['Output tokens (measured)', tokenCount(usage.outputTokens, 'outputTokens')],
+    ['Cached tokens (provider-reported)', tokenCount(usage.cachedTokens, 'cachedTokens')],
+    ['Model calls (measured)', String(usage.modelCalls)],
+    ['Elapsed time (measured)', `${usage.elapsedMs} ms`],
+    ['Estimated cost (estimate)', usage.estimatedCostUsd == null ? 'Unknown' : `$${usage.estimatedCostUsd.toFixed(6)}`],
   ] : [];
   return <article className="usage-card" data-testid={testId}>
-    <div className="usage-card-head"><span>{title}</span><span className="simulated-stamp">SIMULATED</span></div>
-    {!result ? <div className="no-measurement" data-testid={`${testId}-empty`}><span className="no-measurement-mark">—</span><span><b>No measurement yet</b><small>Run this route to reveal its stub metrics.</small></span></div> : <>
-      <div className="sim-warning"><CircleHelp size={13} /> Token and cost figures are estimates. Runtime measures the simulator, not a model.</div>
+    <div className="usage-card-head"><span>{title}</span><span className={`simulated-stamp ${measurementStampClass}`}>{measurementStamp}</span></div>
+    {!result ? <div className="no-measurement" data-testid={`${testId}-empty`}><span className="no-measurement-mark">—</span><span><b>No measurement yet</b><small>Run this route to collect provider usageMetadata.</small></span></div> : <>
+      <div className="sim-warning"><CircleHelp size={13} />{simulated ? 'The screenshot agent did not run. No model call or browser action is represented as measured.' : `Provider usageMetadata saved per call · ${result.modelId}${callsWithoutMetadata ? ` · ${callsWithoutMetadata} call${callsWithoutMetadata === 1 ? '' : 's'} returned no usage metadata; token figures show observed partial sums.` : ''}`}</div>
       <div className="usage-metrics">{values.map(([label, value]) => <div className="usage-metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-      <div className="usage-foot">Run <span>{result.runId}</span> · status {result.status}</div>
+      <div className="usage-foot">Run <span>{result.runId}</span> · {result.modelId} · status {result.status}</div>
     </>}
   </article>;
 }
@@ -274,12 +340,16 @@ function ShelfLibrary({
   onRunWeb,
   webResult,
   webPending = false,
+  visualMode = 'checking',
+  visualUnavailableReason = null,
 }: {
   embedded?: boolean;
   prompt?: string;
   onRunWeb?: () => void;
   webResult?: AgentRunResult;
   webPending?: boolean;
+  visualMode?: AgentStatus['visualRouteMode'] | 'checking';
+  visualUnavailableReason?: string | null;
 }) {
   const queryClient = useQueryClient();
   const { data: state, isLoading, isError, error, refetch } = useGetLibraryState();
@@ -301,7 +371,7 @@ function ShelfLibrary({
     fn({ data: { bookId, idempotencyKey: makeKey() } }, { onSuccess: data => { setActionResult(data); refresh(); }, onError: e => setActionError(errorMessage(e)) });
   }
   return <main className={`page library-page ${embedded ? 'embedded-library' : ''}`}>
-    {embedded && <section className="visual-run-heading" data-testid="visual-web-section"><div><div className="eyebrow">ROUTE B / NORMAL WEBSITE</div><h2>Now do the same task in Shelf.</h2><p>The catalog, loans, and holds below are the working visual interface backed by the same records.</p><div className="visual-task"><span>SHARED PROMPT</span><b>{prompt}</b></div></div><button className="button button-primary" onClick={onRunWeb} disabled={!prompt.trim() || webPending} data-testid="button-run-web-agent">{webPending ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}Run same prompt through website</button></section>}
+    {embedded && <section className="visual-run-heading" data-testid="visual-web-section"><div><div className="eyebrow">ROUTE B / NORMAL WEBSITE · {visualMode === 'live' ? 'LIVE SCREENSHOT LOOP' : visualMode === 'simulated' ? 'SIMULATED · CHROMIUM UNAVAILABLE' : 'CHECKING CHROMIUM'}</div><h2>Now do the same task in Shelf.</h2><p>{visualMode === 'live' ? 'Gemini sees fresh 1280 × 800 screenshots only and controls the page with screen coordinates. Actions are backed by the same verified records.' : visualMode === 'simulated' ? `This route is not being faked. It cannot run until Chromium can open this app’s /library page.${visualUnavailableReason ? ` Reason: ${visualUnavailableReason}` : ''}` : 'Checking whether Playwright Chromium can open this app’s /library page.'}</p><div className="visual-task"><span>SHARED PROMPT</span><b>{prompt}</b></div></div><button className="button button-primary" onClick={onRunWeb} disabled={visualMode !== 'live' || !prompt.trim() || webPending} data-testid="button-run-web-agent">{webPending ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}{visualMode === 'live' ? 'Run live screenshot agent' : visualMode === 'simulated' ? 'Visual route unavailable' : 'Checking browser'}</button></section>}
     {!embedded && <div className="library-heading">
       <div><div className="eyebrow"><span className="eyebrow-line" /> THE FICTIONAL CATALOG <span className="eyebrow-count">SHELF / LIBRARY</span></div><h1>A library built<br /><em>for real actions.</em></h1><p className="library-lede">Browse the demo collection, inspect loans and holds, and make changes to the same state used in the comparison runner.</p></div>
       <div className="reader-card"><div className="reader-avatar">{state?.user.displayName.slice(0, 1) ?? 'R'}</div><div><span className="reader-label">SIGNED IN AS</span><b data-testid="text-library-user">{state?.user.displayName ?? (isLoading ? 'Loading reader…' : 'Demo reader')}</b><small>{state?.user.id ?? 'SHELF READER'}</small></div></div>

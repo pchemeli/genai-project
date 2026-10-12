@@ -179,11 +179,46 @@ export interface AgentLogEntry {
   kind: AgentLogEntryKind;
 }
 
+export type AgentStatusVisualRouteMode = typeof AgentStatusVisualRouteMode[keyof typeof AgentStatusVisualRouteMode];
+
+
+export const AgentStatusVisualRouteMode = {
+  live: 'live',
+  simulated: 'simulated',
+} as const;
+
+export interface AgentStatus {
+  modelId: string;
+  modelConfigured: boolean;
+  visualRouteMode: AgentStatusVisualRouteMode;
+  /** @nullable */
+  visualUnavailableReason: string | null;
+  runsInLastHour: number;
+  maximumRunsPerHour: number;
+  runInProgress: boolean;
+}
+
 export interface TextStep {
   digit: string;
   menu: string;
   /** @nullable */
   error?: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type AgentUsageCallProviderUsageMetadata = { [key: string]: unknown } | null;
+
+export interface AgentUsageCall {
+  /** @nullable */
+  promptTokens: number | null;
+  /** @nullable */
+  outputTokens: number | null;
+  /** @nullable */
+  cachedTokens: number | null;
+  /** @nullable */
+  providerUsageMetadata: AgentUsageCallProviderUsageMetadata;
 }
 
 export type AgentRunResultRoute = typeof AgentRunResultRoute[keyof typeof AgentRunResultRoute];
@@ -192,6 +227,14 @@ export type AgentRunResultRoute = typeof AgentRunResultRoute[keyof typeof AgentR
 export const AgentRunResultRoute = {
   text: 'text',
   web: 'web',
+} as const;
+
+export type AgentRunResultRouteMode = typeof AgentRunResultRouteMode[keyof typeof AgentRunResultRouteMode];
+
+
+export const AgentRunResultRouteMode = {
+  live: 'live',
+  simulated: 'simulated',
 } as const;
 
 export type AgentRunResultStatus = typeof AgentRunResultStatus[keyof typeof AgentRunResultStatus];
@@ -210,17 +253,26 @@ export type AgentRunResultVerification = {
 };
 
 export type AgentRunResultUsage = {
-  simulated: true;
-  inputTokens: number;
-  outputTokens: number;
+  simulated: boolean;
+  /** @nullable */
+  promptTokens: number | null;
+  /** @nullable */
+  outputTokens: number | null;
+  /** @nullable */
+  cachedTokens: number | null;
   modelCalls: number;
   elapsedMs: number;
-  estimatedCostUsd: number;
+  /** @nullable */
+  estimatedCostUsd: number | null;
+  calls: AgentUsageCall[];
 };
 
 export interface AgentRunResult {
   runId: string;
   route: AgentRunResultRoute;
+  routeMode: AgentRunResultRouteMode;
+  modelId: string;
+  fixtureHash: string;
   status: AgentRunResultStatus;
   log: AgentLogEntry[];
   textSteps: TextStep[];

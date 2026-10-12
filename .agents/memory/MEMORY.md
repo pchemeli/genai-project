@@ -1,0 +1,1 @@
+- [Gemini screenshot coordinates](gemini-screenshot-coordinates.md) — image clicks may be normalized 0–1000; map them to viewport pixels before Playwright.

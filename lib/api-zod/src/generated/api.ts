@@ -368,7 +368,7 @@ export const InputTextSessionResponse = zod.object({
 
 
 /**
- * @summary Simulate a Shelf agent run through a selected interface
+ * @summary Run the Shelf agent through a selected interface
  */
 export const runAgentBodyPromptMax = 500;
 
@@ -385,6 +385,9 @@ export const RunAgentBody = zod.object({
 export const RunAgentResponse = zod.object({
   "runId": zod.string(),
   "route": zod.enum(['text', 'web']),
+  "routeMode": zod.enum(['live', 'simulated']),
+  "modelId": zod.string(),
+  "fixtureHash": zod.string(),
   "status": zod.enum(['completed', 'refused', 'unsupported', 'failed']),
   "log": zod.array(zod.object({
   "message": zod.string(),
@@ -400,13 +403,34 @@ export const RunAgentResponse = zod.object({
   "message": zod.string()
 }),
   "usage": zod.object({
-  "simulated": zod.literal(true),
-  "inputTokens": zod.number().int(),
-  "outputTokens": zod.number().int(),
+  "simulated": zod.boolean(),
+  "promptTokens": zod.number().int().nullable(),
+  "outputTokens": zod.number().int().nullable(),
+  "cachedTokens": zod.number().int().nullable(),
   "modelCalls": zod.number().int(),
   "elapsedMs": zod.number().int(),
-  "estimatedCostUsd": zod.number()
+  "estimatedCostUsd": zod.number().nullable(),
+  "calls": zod.array(zod.object({
+  "promptTokens": zod.number().int().nullable(),
+  "outputTokens": zod.number().int().nullable(),
+  "cachedTokens": zod.number().int().nullable(),
+  "providerUsageMetadata": zod.record(zod.string(), zod.unknown()).nullable()
+}))
 })
+})
+
+
+/**
+ * @summary Get model, browser, and run-limit status
+ */
+export const GetAgentStatusResponse = zod.object({
+  "modelId": zod.string(),
+  "modelConfigured": zod.boolean(),
+  "visualRouteMode": zod.enum(['live', 'simulated']),
+  "visualUnavailableReason": zod.string().nullable(),
+  "runsInLastHour": zod.number().int(),
+  "maximumRunsPerHour": zod.number().int(),
+  "runInProgress": zod.boolean()
 })
 
 

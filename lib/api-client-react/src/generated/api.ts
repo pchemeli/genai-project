@@ -23,6 +23,7 @@ import type {
   ActionResult,
   AgentRunInput,
   AgentRunResult,
+  AgentStatus,
   DueDateResult,
   ErrorResult,
   HealthStatus,
@@ -817,7 +818,7 @@ export const getRunAgentUrl = () => {
 }
 
 /**
- * @summary Simulate a Shelf agent run through a selected interface
+ * @summary Run the Shelf agent through a selected interface
  */
 export const runAgent = async (agentRunInput: AgentRunInput, options?: Parameters<typeof customFetch>[1]): Promise<AgentRunResult> => {
 
@@ -883,7 +884,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RunAgentMutationVariables = {data: BodyType<AgentRunInput>}
 
     /**
- * @summary Simulate a Shelf agent run through a selected interface
+ * @summary Run the Shelf agent through a selected interface
  */
 export const useRunAgent = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runAgent>>, TError,RunAgentMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -895,4 +896,81 @@ export const useRunAgent = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getRunAgentMutationOptions(options));
     }
+
+export const getGetAgentStatusUrl = () => {
+
+
+
+
+  return `/api/agent/status`
+}
+
+/**
+ * @summary Get model, browser, and run-limit status
+ */
+export const getAgentStatus = async ( options?: Parameters<typeof customFetch>[1]): Promise<AgentStatus> => {
+
+  return customFetch<AgentStatus>(getGetAgentStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAgentStatusQueryKey = () => {
+    return [
+    `/api/agent/status`
+    ] as const;
+    }
+
+
+export const getGetAgentStatusQueryOptions = <TData = Awaited<ReturnType<typeof getAgentStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAgentStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgentStatus>>> = ({ signal }) => getAgentStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgentStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAgentStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getAgentStatus>>>
+export type GetAgentStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get model, browser, and run-limit status
+ */
+
+export function useGetAgentStatus<TData = Awaited<ReturnType<typeof getAgentStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgentStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAgentStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 

@@ -196,7 +196,7 @@ paths:
     post:
       operationId: runAgent
       tags: [agent]
-      summary: Simulate a Shelf agent run through a selected interface
+      summary: Run the Shelf agent through a selected interface
       requestBody:
         required: true
         content:
@@ -205,11 +205,23 @@ paths:
               $ref: "#/components/schemas/AgentRunInput"
       responses:
         "200":
-          description: Run log, verification, and simulated usage values
+          description: Run log, verification, and per-call model usage
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AgentRunResult"
+  /agent/status:
+    get:
+      operationId: getAgentStatus
+      tags: [agent]
+      summary: Get model, browser, and run-limit status
+      responses:
+        "200":
+          description: Current agent capability and rate-limit status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentStatus"
 components:
   schemas:
     HealthStatus:
@@ -343,6 +355,17 @@ components:
       properties:
         message: { type: string }
         kind: { type: string, enum: [info, action, success, refusal, error] }
+    AgentStatus:
+      type: object
+      required: [modelId, modelConfigured, visualRouteMode, visualUnavailableReason, runsInLastHour, maximumRunsPerHour, runInProgress]
+      properties:
+        modelId: { type: string }
+        modelConfigured: { type: boolean }
+        visualRouteMode: { type: string, enum: [live, simulated] }
+        visualUnavailableReason: { type: ["string", "null"] }
+        runsInLastHour: { type: integer }
+        maximumRunsPerHour: { type: integer }
+        runInProgress: { type: boolean }
     TextStep:
       type: object
       required: [digit, menu]
@@ -350,12 +373,25 @@ components:
         digit: { type: string }
         menu: { type: string }
         error: { type: ["string", "null"] }
+    AgentUsageCall:
+      type: object
+      required: [promptTokens, outputTokens, cachedTokens, providerUsageMetadata]
+      properties:
+        promptTokens: { type: ["integer", "null"] }
+        outputTokens: { type: ["integer", "null"] }
+        cachedTokens: { type: ["integer", "null"] }
+        providerUsageMetadata:
+          type: ["object", "null"]
+          additionalProperties: true
     AgentRunResult:
       type: object
-      required: [runId, route, status, log, textSteps, verification, usage]
+      required: [runId, route, routeMode, modelId, fixtureHash, status, log, textSteps, verification, usage]
       properties:
         runId: { type: string }
         route: { type: string, enum: [text, web] }
+        routeMode: { type: string, enum: [live, simulated] }
+        modelId: { type: string }
+        fixtureHash: { type: string }
         status: { type: string, enum: [completed, refused, unsupported, failed] }
         log:
           type: array
@@ -371,12 +407,16 @@ components:
             message: { type: string }
         usage:
           type: object
-          required: [simulated, inputTokens, outputTokens, modelCalls, elapsedMs, estimatedCostUsd]
+          required: [simulated, promptTokens, outputTokens, cachedTokens, modelCalls, elapsedMs, estimatedCostUsd, calls]
           properties:
-            simulated: { type: boolean, const: true }
-            inputTokens: { type: integer }
-            outputTokens: { type: integer }
+            simulated: { type: boolean }
+            promptTokens: { type: ["integer", "null"] }
+            outputTokens: { type: ["integer", "null"] }
+            cachedTokens: { type: ["integer", "null"] }
             modelCalls: { type: integer }
             elapsedMs: { type: integer }
-            estimatedCostUsd: { type: number }
+            estimatedCostUsd: { type: ["number", "null"] }
+            calls:
+              type: array
+              items: { $ref: "#/components/schemas/AgentUsageCall" }
 

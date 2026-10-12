@@ -18,3 +18,10 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+MODEL_ID = "gemini-3.1-flash-lite"
+QURUS_APP_ORIGIN = "http://127.0.0.1"
+QURUS_MAX_RUNS_PER_HOUR = "30"
