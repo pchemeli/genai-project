@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Qurus"
+description = "A mobile-friendly class demo comparing an AI agent completing library tasks through Shelf’s visual website and a simulated USSD-style menu."
+version = "1.0.0"
+id = "artifacts/qurus"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26011
+
+[services.development]
+run = "pnpm --filter @workspace/qurus run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/qurus", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/qurus/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26011"
+BASE_PATH = "/"

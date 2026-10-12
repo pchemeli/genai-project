@@ -1,6 +1,6 @@
-# [Project name]
+# Qurus
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Qurus is a Stage 1 classroom demo comparing a scripted agent’s actions on the fictional Shelf library through a web-based text-menu simulation and a normal visual website.
 
 ## Run & Operate
 
@@ -22,23 +22,31 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/qurus` — React/Vite app, home comparison runner, and `/library`.
+- `artifacts/api-server` — Express API, shared Shelf library service, persistent text-menu sessions, and local agent stub.
+- `lib/api-spec/openapi.yaml` — source-of-truth API contract; regenerate hooks and schemas with the API-spec codegen command.
+- `lib/db` — Drizzle schema for persisted fixture state, idempotency results, and menu sessions.
+- `README.md` — run instructions and Stage 1 scope.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The website, text-menu state machine, and agent stub share the same PostgreSQL-backed library service.
+- Text-menu sessions are a browser-based simulation only; they do not use carrier USSD or SMS.
+- The local agent is intentionally stubbed and reports simulated token/cost estimates until a model is deliberately configured.
+- Mutations use server-side validation, idempotency keys, and receipt IDs; each agent run verifies persisted records.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+The demo supports renewing an eligible loan, reserving an available title, cancelling an active hold, and reading a due date. A blocked renewal must not change the record; payments and fines are unsupported.
+Use only the seeded fictional patron and books. Do not add real patron data, payments, paid services, or model credentials in Stage 1.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+Keep this project at Stage 1 unless the user asks to expand it. Do not add a presentation deck.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+The API and web app use separate workflows; both must be running for the complete comparison. Apply development schema changes with `pnpm --filter @workspace/db run push`. Keep all credentials in Replit Secrets/environment, never in `.env.example`.
 
 ## Pointers
 

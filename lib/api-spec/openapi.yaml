@@ -10,6 +10,12 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: shelf
+    description: Fictional Shelf library demo operations
+  - name: text-session
+    description: Simulated USSD-style menu sessions
+  - name: agent
+    description: Simulated agent runs and verification
 paths:
   /healthz:
     get:
@@ -24,6 +30,186 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /library/state:
+    get:
+      operationId: getLibraryState
+      tags: [shelf]
+      summary: Get the current fictional library state
+      responses:
+        "200":
+          description: Library data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryState"
+  /library/renew:
+    post:
+      operationId: renewLoan
+      tags: [shelf]
+      summary: Renew a loan when eligible
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoanActionInput"
+      responses:
+        "200":
+          description: Renewal receipt and updated state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+        "409":
+          description: Renewal is blocked by a hold or renewal limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResult"
+  /library/reserve:
+    post:
+      operationId: reserveTitle
+      tags: [shelf]
+      summary: Reserve an available title
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoanActionInput"
+      responses:
+        "200":
+          description: Reservation receipt and updated state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+        "409":
+          description: Title cannot be reserved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResult"
+  /library/cancel:
+    post:
+      operationId: cancelHold
+      tags: [shelf]
+      summary: Cancel an active hold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HoldActionInput"
+      responses:
+        "200":
+          description: Cancellation receipt and updated state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+  /library/due/{bookId}:
+    get:
+      operationId: readDueDate
+      tags: [shelf]
+      summary: Read the due date for a loan
+      parameters:
+        - in: path
+          name: bookId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Due date receipt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DueDateResult"
+        "404":
+          description: Loan not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResult"
+  /library/reset:
+    post:
+      operationId: resetLibrary
+      tags: [shelf]
+      summary: Restore fictional fixture data
+      responses:
+        "200":
+          description: Reset fixture state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LibraryState"
+  /text/session:
+    post:
+      operationId: startTextSession
+      tags: [text-session]
+      summary: Start a simulated text menu session using *123#
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartSessionInput"
+      responses:
+        "201":
+          description: New session and home menu
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextSessionResult"
+  /text/session/{sessionId}/input:
+    post:
+      operationId: inputTextSession
+      tags: [text-session]
+      summary: Submit one digit to a simulated text menu session
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TextInput"
+      responses:
+        "200":
+          description: Updated session menu
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextSessionResult"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResult"
+  /agent/run:
+    post:
+      operationId: runAgent
+      tags: [agent]
+      summary: Simulate a Shelf agent run through a selected interface
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRunInput"
+      responses:
+        "200":
+          description: Run log, verification, and simulated usage values
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentRunResult"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +219,164 @@ components:
           type: string
       required:
         - status
+    Book:
+      type: object
+      required: [id, title, author, genre, availability]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        author: { type: string }
+        genre: { type: string }
+        availability: { type: string, enum: [available, checked_out, on_hold] }
+    Loan:
+      type: object
+      required: [id, bookId, dueDate, renewalsUsed, renewalLimit]
+      properties:
+        id: { type: string }
+        bookId: { type: string }
+        dueDate: { type: string, format: date }
+        renewalsUsed: { type: integer }
+        renewalLimit: { type: integer }
+        renewalBlockedReason: { type: ["string", "null"] }
+    Hold:
+      type: object
+      required: [id, bookId, placedAt, active]
+      properties:
+        id: { type: string }
+        bookId: { type: string }
+        placedAt: { type: string, format: date }
+        active: { type: boolean }
+    DemoUser:
+      type: object
+      required: [id, displayName]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+    LibraryState:
+      type: object
+      required: [user, books, loans, holds]
+      properties:
+        user: { $ref: "#/components/schemas/DemoUser" }
+        books:
+          type: array
+          items: { $ref: "#/components/schemas/Book" }
+        loans:
+          type: array
+          items: { $ref: "#/components/schemas/Loan" }
+        holds:
+          type: array
+          items: { $ref: "#/components/schemas/Hold" }
+    LoanActionInput:
+      type: object
+      required: [bookId, idempotencyKey]
+      properties:
+        bookId: { type: string, minLength: 1 }
+        idempotencyKey: { type: string, minLength: 1, maxLength: 120 }
+    HoldActionInput:
+      type: object
+      required: [holdId, idempotencyKey]
+      properties:
+        holdId: { type: string, minLength: 1 }
+        idempotencyKey: { type: string, minLength: 1, maxLength: 120 }
+    Receipt:
+      type: object
+      required: [id, operation, message, createdAt]
+      properties:
+        id: { type: string }
+        operation: { type: string }
+        message: { type: string }
+        createdAt: { type: string, format: date-time }
+    ActionResult:
+      type: object
+      required: [receipt, state, idempotentReplay]
+      properties:
+        receipt: { $ref: "#/components/schemas/Receipt" }
+        state: { $ref: "#/components/schemas/LibraryState" }
+        idempotentReplay: { type: boolean }
+    DueDateResult:
+      type: object
+      required: [bookId, title, dueDate, receipt]
+      properties:
+        bookId: { type: string }
+        title: { type: string }
+        dueDate: { type: string, format: date }
+        receipt: { $ref: "#/components/schemas/Receipt" }
+    ErrorResult:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    StartSessionInput:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, enum: ["*123#"] }
+    TextInput:
+      type: object
+      required: [digit]
+      properties:
+        digit: { type: string, pattern: "^[0-9]$" }
+    TextSessionResult:
+      type: object
+      required: [sessionId, screen, menu, ended, error]
+      properties:
+        sessionId: { type: string }
+        screen: { type: string, enum: [home, loans, loan_detail, confirmation, holds, reserve, result, ended] }
+        menu: { type: string }
+        ended: { type: boolean }
+        error: { type: ["string", "null"] }
+        selectedBookId: { type: ["string", "null"] }
+        result:
+          oneOf:
+            - $ref: "#/components/schemas/ActionResult"
+            - type: "null"
+    AgentRunInput:
+      type: object
+      required: [prompt, route, idempotencyKey]
+      properties:
+        prompt: { type: string, minLength: 1, maxLength: 500 }
+        route: { type: string, enum: [text, web] }
+        idempotencyKey: { type: string, minLength: 1, maxLength: 120 }
+    AgentLogEntry:
+      type: object
+      required: [message, kind]
+      properties:
+        message: { type: string }
+        kind: { type: string, enum: [info, action, success, refusal, error] }
+    TextStep:
+      type: object
+      required: [digit, menu]
+      properties:
+        digit: { type: string }
+        menu: { type: string }
+        error: { type: ["string", "null"] }
+    AgentRunResult:
+      type: object
+      required: [runId, route, status, log, textSteps, verification, usage]
+      properties:
+        runId: { type: string }
+        route: { type: string, enum: [text, web] }
+        status: { type: string, enum: [completed, refused, unsupported, failed] }
+        log:
+          type: array
+          items: { $ref: "#/components/schemas/AgentLogEntry" }
+        textSteps:
+          type: array
+          items: { $ref: "#/components/schemas/TextStep" }
+        verification:
+          type: object
+          required: [passed, message]
+          properties:
+            passed: { type: boolean }
+            message: { type: string }
+        usage:
+          type: object
+          required: [simulated, inputTokens, outputTokens, modelCalls, elapsedMs, estimatedCostUsd]
+          properties:
+            simulated: { type: boolean, const: true }
+            inputTokens: { type: integer }
+            outputTokens: { type: integer }
+            modelCalls: { type: integer }
+            elapsedMs: { type: integer }
+            estimatedCostUsd: { type: number }
 
