@@ -1,423 +1,309 @@
-import { useState } from 'react';
-import type { ReactNode } from 'react';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
-import { ErrorBoundary } from '@/components/error-boundary';
-import { Toaster } from '@/components/ui/toaster';
-import { TooltipProvider } from '@/components/ui/tooltip';
-import NotFound from '@/pages/not-found';
-import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
-import {
-  getGetAgentStatusQueryKey, getGetLibraryStateQueryKey, getReadDueDateQueryKey,
-  useGetAgentStatus, useGetLibraryState, useRenewLoan,
-  useReserveTitle, useCancelHold, useReadDueDate, useResetLibrary, useStartTextSession,
-  useInputTextSession, useRunAgent,
-} from '@workspace/api-client-react';
-import type { AgentRunResult, ActionResult, TextSessionResult, AgentStatus } from '@workspace/api-client-react';
-import {
-  ArrowRight, BookOpen, Check, CircleHelp, Clock3, LibraryBig, LoaderCircle,
-  RotateCcw, Search, ShieldCheck, Signal, Smartphone, Sparkles, X,
-} from 'lucide-react';
+import { useEffect, useState } from 'react';
 
-const queryClient = new QueryClient();
+type DemoRoute = {
+  steps: string[];
+  reply: string;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+  credits: number;
+};
 
-const prompts = [
-  'Renew my copy of The Long Way Home.',
-  'Reserve Field Notes on Cities.',
-  'Cancel my hold on Quiet Rivers.',
-  'When is The Long Way Home due?',
-  'Renew Data for Everyone.',
-  'Pay my library fine.',
+type DemoPrompt = {
+  id: string;
+  prompt: string;
+  text: DemoRoute;
+  visual: DemoRoute;
+  refused?: boolean;
+};
+
+const demos: DemoPrompt[] = [
+  {
+    id: 'frieren',
+    prompt: 'Add Frieren to my watchlist.',
+    text: {
+      steps: ['Dial *123#', '2 · Watchlist', '1 · Add a title', 'Search result · Frieren', '1 · Confirm add'],
+      reply: 'Frieren is now on your watchlist.',
+      inputTokens: 58, outputTokens: 19, calls: 2, credits: 4,
+    },
+    visual: {
+      steps: ['Open Watchlist', 'Find Frieren in Discover', 'Select “Add to list”', 'Confirm · Frieren saved'],
+      reply: 'Frieren added to the fictional watchlist.',
+      inputTokens: 620, outputTokens: 22, calls: 3, credits: 13,
+    },
+  },
+  {
+    id: 'continue',
+    prompt: 'Continue Jujutsu Kaisen from episode 12.',
+    text: {
+      steps: ['Dial *123#', '1 · Continue watching', 'Jujutsu Kaisen · Episode 12', '1 · Resume'],
+      reply: 'Resuming Jujutsu Kaisen at episode 12.',
+      inputTokens: 72, outputTokens: 21, calls: 2, credits: 5,
+    },
+    visual: {
+      steps: ['Open the Jujutsu Kaisen row', 'Read progress · Episode 12', 'Select “Continue”'],
+      reply: 'Playback would continue at episode 12 in this scripted example.',
+      inputTokens: 790, outputTokens: 28, calls: 4, credits: 17,
+    },
+  },
+  {
+    id: 'renewal',
+    prompt: 'Cancel my subscription renewal.',
+    text: {
+      steps: ['Dial *123#', '3 · Account settings', '2 · Renewal status', '1 · Turn renewal off'],
+      reply: 'Fictional renewal is marked off. No payment or account service was contacted.',
+      inputTokens: 60, outputTokens: 19, calls: 2, credits: 4,
+    },
+    visual: {
+      steps: ['Open fictional account settings', 'Choose “Renewal: on”', 'Select “Turn renewal off”'],
+      reply: 'Renewal marked off in demo data only. No subscription service was contacted.',
+      inputTokens: 650, outputTokens: 24, calls: 3, credits: 14,
+    },
+  },
+  {
+    id: 'list',
+    prompt: 'What is on my watchlist?',
+    text: {
+      steps: ['Dial *123#', '2 · Watchlist', 'Read 3 saved titles'],
+      reply: 'Jujutsu Kaisen (episode 12), Spy x Family (episode 3), and Mob Psycho 100 (episode 4).',
+      inputTokens: 44, outputTokens: 23, calls: 1, credits: 3,
+    },
+    visual: {
+      steps: ['Open “My list”', 'Read the three visible titles and progress'],
+      reply: 'Your list: Jujutsu Kaisen, Spy x Family, and Mob Psycho 100.',
+      inputTokens: 590, outputTokens: 19, calls: 2, credits: 12,
+    },
+  },
+  {
+    id: 'premium',
+    prompt: 'Buy me a premium plan.',
+    refused: true,
+    text: {
+      steps: ['Dial *123#', 'No purchase option in this demo', 'Refuse without changing data'],
+      reply: 'I can’t buy a plan here. This demo has no checkout or payment connection.',
+      inputTokens: 39, outputTokens: 20, calls: 1, credits: 2,
+    },
+    visual: {
+      steps: ['Inspect the fictional Watchlist screen', 'No purchase control is available', 'Refuse without changing data'],
+      reply: 'Premium purchases are unsupported. No purchase or account change was made.',
+      inputTokens: 520, outputTokens: 17, calls: 2, credits: 11,
+    },
+  },
+  {
+    id: 'delete',
+    prompt: 'Delete my account.',
+    refused: true,
+    text: {
+      steps: ['Dial *123#', 'No account deletion option', 'Refuse without changing data'],
+      reply: 'I can’t delete accounts in this demo. No account data was changed.',
+      inputTokens: 41, outputTokens: 22, calls: 1, credits: 2,
+    },
+    visual: {
+      steps: ['Open the fictional profile screen', 'No deletion control is available', 'Refuse without changing data'],
+      reply: 'Account deletion is unsupported. No account data was changed.',
+      inputTokens: 570, outputTokens: 18, calls: 2, credits: 12,
+    },
+  },
 ];
 
-function makeKey() {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
+
+function Figure({ className = '' }: { className?: string }) {
+  return <svg className={`line-figure ${className}`} viewBox="0 0 54 72" aria-hidden="true">
+    <circle cx="27" cy="11" r="7" />
+    <path d="M27 18v25M27 25 11 35m16-10 16 10M27 43 15 65m12-22 13 22" />
+    <path d="M7 67h40" />
+  </svg>;
 }
 
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  return String(error ?? 'Request failed');
+function AnimeMark() {
+  return <svg viewBox="0 0 32 38" aria-hidden="true">
+    <path d="M16 2 28 9v20l-12 7L4 29V9zM10 13l6-5 6 5m-12 7 5 3 7-3m-10 7 10 0" />
+  </svg>;
 }
 
-function displayDate(value: Date | string) {
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? String(value) : date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
-function displayDateTime(value: Date | string) {
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? String(value) : date.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-}
-
-function getTokenComparison(
-  text?: AgentRunResult,
-  web?: AgentRunResult,
-  textPrompt = '',
-  webPrompt = '',
-) {
-  if (!text || !web) return 'No savings computed yet. Both live routes must run the same prompt.';
-  if (textPrompt !== webPrompt) return 'No savings computed. The two route runs used different prompts.';
-  if (text.fixtureHash !== web.fixtureHash) return 'No savings computed. Reset the fixture and rerun both routes from the same starting records.';
-  const verifiedLiveRun = (result: AgentRunResult) =>
-    result.status === 'completed' &&
-    result.verification.passed &&
-    result.routeMode === 'live' &&
-    !result.usage.simulated &&
-    result.usage.promptTokens !== null &&
-    result.usage.outputTokens !== null;
-  if (!verifiedLiveRun(text) || !verifiedLiveRun(web)) {
-    return 'No savings computed. Both live route runs must complete and pass committed-record verification.';
-  }
-  const textTotal = text.usage.promptTokens! + text.usage.outputTokens!;
-  const webTotal = web.usage.promptTokens! + web.usage.outputTokens!;
-  const reduction = textTotal - webTotal;
-  if (reduction === 0) return `0 tokens saved; both routes used ${textTotal.toLocaleString()} input + output tokens.`;
-  if (reduction > 0) return `${reduction.toLocaleString()} tokens saved (${Math.round(reduction / Math.max(textTotal, 1) * 100)}% fewer than the text route).`;
-  return `−${Math.abs(reduction).toLocaleString()} tokens saved; the visual route used ${Math.abs(reduction).toLocaleString()} more tokens than the text route.`;
-}
-
-function Shell({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
-  return <div className="app-shell">
-    <header className="topbar">
-      <Link href="/" className="brand" data-testid="link-qurus-home"><span className="brand-mark">q</span><span>qurus</span><span className="brand-caption">CLASSROOM LAB</span></Link>
-      <nav className="topnav" aria-label="Main navigation">
-        <Link href="/" className={location === '/' ? 'nav-link active' : 'nav-link'} data-testid="link-runner"><span className="nav-index">01</span> Compare</Link>
-        <Link href="/library" className={location === '/library' ? 'nav-link active' : 'nav-link'} data-testid="link-library"><span className="nav-index">02</span> Shelf library</Link>
-      </nav>
-      <div className="top-status"><span className="status-dot" /> FICTIONAL SYSTEM <span className="top-sep">/</span> LIVE DEMO</div>
-    </header>
-    {children}
-    <footer className="footer"><span>QURUS <span className="footer-dot">•</span> A CLASSROOM EXPERIMENT</span><span>Same request. Two interfaces. Verifiable results.</span></footer>
+function DemoUsage({ route, title }: { route: DemoRoute | undefined; title: string }) {
+  return <div className="usage-line">
+    <div className="usage-head"><strong>{title}</strong><span>DEMO DATA · NOT MEASURED</span></div>
+    {route ? <>
+      <div className="usage-grid">
+        <div className="usage-metric"><span>Input tokens</span><b>{route.inputTokens}</b></div>
+        <div className="usage-metric"><span>Output tokens</span><b>{route.outputTokens}</b></div>
+        <div className="usage-metric"><span>Model calls</span><b>{route.calls}</b></div>
+        <div className="usage-metric"><span>Demo credits</span><b>{route.credits}</b></div>
+      </div>
+      <div className="usage-note">Fixed scripted counters for illustration. No model ran; these are not real tokens, credits, cost, or timing.</div>
+    </> : <div className="usage-note">Choose a prompt to show its fixed token and credit examples.</div>}
   </div>;
-}
-
-function Runner() {
-  const queryClient = useQueryClient();
-  const libraryQuery = useGetLibraryState();
-  const agentStatusQuery = useGetAgentStatus({ query: { queryKey: getGetAgentStatusQueryKey(), refetchInterval: 15000 } });
-  const reset = useResetLibrary();
-  const startText = useStartTextSession();
-  const inputText = useInputTextSession();
-  const runAgent = useRunAgent();
-  const [promptText, setPromptText] = useState(prompts[0]);
-  const [agentResults, setAgentResults] = useState<Partial<Record<'text' | 'web', AgentRunResult>>>({});
-  const [textSession, setTextSession] = useState<TextSessionResult | null>(null);
-  const [sessionError, setSessionError] = useState('');
-  const [runnerError, setRunnerError] = useState('');
-  const [lastTextPrompt, setLastTextPrompt] = useState('');
-  const [lastWebPrompt, setLastWebPrompt] = useState('');
-  const [phoneFrame, setPhoneFrame] = useState({
-    menu: 'Start a text session or run a prompt to see the API menu.',
-    digit: '',
-    typing: false,
-    error: '',
-  });
-
-  function run(route: 'text' | 'web') {
-    if (!promptText.trim()) return;
-    setRunnerError('');
-    setAgentResults(prev => ({ ...prev, [route]: undefined }));
-    if (route === 'text') setLastTextPrompt(promptText.trim());
-    else setLastWebPrompt(promptText.trim());
-    runAgent.mutate({ data: { prompt: promptText.trim(), route, idempotencyKey: makeKey() } }, {
-      onSuccess: result => {
-        setAgentResults(prev => ({ ...prev, [route]: result }));
-        void queryClient.invalidateQueries({ queryKey: getGetLibraryStateQueryKey() });
-        void queryClient.invalidateQueries({ queryKey: getGetAgentStatusQueryKey() });
-        if (route === 'text') {
-          setTextSession(null);
-          if (result.textSteps.length === 0) {
-            setPhoneFrame({ menu: 'No text-menu action was needed for this request.', digit: '', typing: false, error: '' });
-            return;
-          }
-          setPhoneFrame({ menu: 'Agent is dialing *123#…', digit: '', typing: true, error: '' });
-          void (async () => {
-            for (const step of result.textSteps) {
-              if (step.digit === '*123#') {
-                let dial = '';
-                for (const char of step.digit) {
-                  dial += char;
-                  setPhoneFrame({ menu: 'Connecting to the Shelf demo…', digit: dial, typing: true, error: '' });
-                  await new Promise(resolve => setTimeout(resolve, 90));
-                }
-              } else {
-                setPhoneFrame(prev => ({ ...prev, digit: step.digit, typing: true }));
-                await new Promise(resolve => setTimeout(resolve, 360));
-              }
-              setPhoneFrame({ menu: step.menu, digit: step.digit, typing: false, error: step.error ?? '' });
-              await new Promise(resolve => setTimeout(resolve, 430));
-            }
-          })();
-        }
-      },
-      onError: error => setRunnerError(`${route.toUpperCase()} run: ${errorMessage(error)}`),
-    });
-  }
-  function beginText() {
-    setAgentResults(prev => ({ ...prev, text: undefined }));
-    setLastTextPrompt('');
-    setTextSession(null);
-    setPhoneFrame({ menu: 'Connecting to Shelf…', digit: '*123#', typing: true, error: '' });
-    setSessionError('');
-    startText.mutate({ data: { code: '*123#' } }, {
-      onSuccess: result => {
-        setTextSession(result);
-        setPhoneFrame({ menu: result.menu, digit: '*123#', typing: false, error: '' });
-      },
-      onError: error => setSessionError(errorMessage(error)),
-    });
-  }
-  function pressDigit(digit: string) {
-    if (!textSession?.sessionId) return;
-    setSessionError('');
-    setPhoneFrame(prev => ({ ...prev, digit, typing: true }));
-    inputText.mutate({ sessionId: textSession.sessionId, data: { digit } }, {
-      onSuccess: result => {
-        setTextSession(result);
-        setPhoneFrame({ menu: result.menu, digit, typing: false, error: result.error ?? '' });
-      },
-      onError: error => setSessionError(errorMessage(error)),
-    });
-  }
-  const userName = libraryQuery.data?.user.displayName;
-  const agentStatus = agentStatusQuery.data;
-  const runLimitReached = Boolean(agentStatus && agentStatus.runsInLastHour >= agentStatus.maximumRunsPerHour);
-  const runDisabled = runAgent.isPending || Boolean(agentStatus?.runInProgress) || runLimitReached || (agentStatus !== undefined && !agentStatus.modelConfigured);
-  const tokenComparison = getTokenComparison(agentResults.text, agentResults.web, lastTextPrompt, lastWebPrompt);
-  return <>
-  <main className="page runner-page">
-    <section className="runner-intro">
-      <div className="eyebrow"><span className="eyebrow-line" /> A CONTROLLED COMPARISON <span className="eyebrow-count">01 — 02</span></div>
-      <div className="intro-grid">
-        <div><h1>One request.<br /><em>Two ways through.</em></h1></div>
-        <div className="intro-copy">
-          <p>Watch Gemini complete the same fictional Shelf task through a text-menu web simulation and a screenshot-driven website agent. The server validates and verifies every committed result.</p>
-          <div className="intro-meta"><span><ShieldCheck size={15} /> Server-verified actions</span><span><span className="mono">SHELF</span> · Fictional library</span><span className="mono">MODEL_ID · {agentStatus?.modelId ?? 'checking'}</span></div>
-        </div>
-      </div>
-      <div className="experiment-strip">
-        <span className="strip-label">CURRENT FIXTURE</span>
-        {libraryQuery.isLoading ? <span className="strip-value">Loading fixture…</span> : libraryQuery.isError ? <span className="strip-error" data-testid="error-library-state">{errorMessage(libraryQuery.error)}</span> : <><span className="strip-value" data-testid="text-demo-user">{userName ?? 'Demo reader'}</span><span className="strip-divider" /><span className="strip-value">{libraryQuery.data?.books.length ?? 0} titles · {libraryQuery.data?.loans.length ?? 0} loans · {libraryQuery.data?.holds.length ?? 0} holds</span></>}
-        <Link href="/library" className="strip-link" data-testid="link-open-catalog">Open Shelf <ArrowRight size={15} /></Link>
-      </div>
-    </section>
-
-    <section className="prompt-area">
-      <div className="section-heading"><div><div className="eyebrow">THE REQUEST</div><h2>Give the agent a task</h2></div><span className="small-note">Choose an example or type your own.</span></div>
-      <div className="prompt-chips">
-        {prompts.map((prompt, i) => <button key={prompt} onClick={() => setPromptText(prompt)} className={`prompt-chip-button ${promptText === prompt ? 'selected' : ''}`} data-testid={`button-prompt-${i + 1}`}>{prompt}</button>)}
-      </div>
-    </section>
-
-    <section className="comparison">
-      <div className="compare-title"><div><div className="eyebrow">GEMINI · SHARED FIXTURE · {agentStatus ? `${agentStatus.runsInLastHour}/${agentStatus.maximumRunsPerHour} RUNS THIS HOUR` : 'CHECKING RUN LIMIT'}</div><h2>Two phone interfaces</h2></div><div className="prompt-chip"><span className="chip-dot" /> {promptText}</div></div>
-      {runnerError && <div className="error-banner" role="alert" data-testid="status-runner-error"><CircleHelp size={17} />{runnerError}</div>}
-      <div className="route-grid">
-        <article className="route-panel chat-panel">
-          <header className="route-header"><div className="route-symbol text-symbol"><Sparkles size={18} /></div><div><div className="route-overline">ROUTE A <span className="route-divider">/</span> GEMINI TEXT AGENT</div><h3>Prompt and agent log</h3></div><span className={`simulation-tag ${agentStatus?.modelConfigured ? 'live-tag' : ''}`}>{agentStatus?.modelConfigured ? `LIVE · ${agentStatus.modelId}` : 'GEMINI NOT CONFIGURED'}</span></header>
-          <div className="chat-phone-stage">
-            <div className="phone-shell">
-              <div className="phone-camera" />
-              <div className="phone-screen chat-phone-screen">
-                <div className="phone-status"><span>9:41</span><span><Signal size={13} /> <span className="signal-bars">▮▮▮</span></span></div>
-                 <div className="chat-contact"><span className="mini-mark">Q</span><span><b>Qurus agent</b><small>{agentStatus?.modelConfigured ? `GEMINI · ${agentStatus.modelId}` : 'MODEL NOT CONFIGURED'}</small></span></div>
-                <div className="chat-history" data-testid="text-agent-chat">
-                  {lastTextPrompt ? <div className="chat-message user-message">{lastTextPrompt}</div> : <div className="chat-welcome"><Sparkles size={18} /><span>Type a library task below. The agent’s actual run log will appear here.</span></div>}
-                  {agentResults.text?.log.map((entry, i) => <div className={`chat-message agent-message log-${entry.kind}`} key={`${i}-${entry.message}`} data-testid={`chat-log-${i}`}>{entry.message}</div>)}
-                  {runAgent.isPending && lastTextPrompt && <div className="typing-bubble" aria-label="Agent is processing"><i /><i /><i /></div>}
-                  {agentResults.text && <div className={`chat-verification ${agentResults.text.verification.passed ? 'passed' : 'not-passed'}`} data-testid="chat-verification">{agentResults.text.verification.passed ? 'VERIFIED' : 'NOT VERIFIED'} · {agentResults.text.verification.message}</div>}
-                  {sessionError && <div className="chat-inline-error" role="alert" data-testid="status-text-session-error">{sessionError}</div>}
-                </div>
-              </div>
-              <div className="phone-home" />
-            </div>
-          </div>
-          <form className="chat-compose" onSubmit={event => { event.preventDefault(); run('text'); }}>
-            <textarea value={promptText} onChange={event => setPromptText(event.target.value)} placeholder="Ask Shelf to renew, reserve, cancel, or check a due date…" rows={2} aria-label="Library task prompt" data-testid="input-agent-prompt" />
-            <button className="button button-primary" type="submit" disabled={runDisabled || !promptText.trim()} data-testid="button-run-text-agent">{runAgent.isPending ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}Send to text route</button>
-          </form>
-          <div className="chat-footnote">Gemini chooses each digit from the current menu. Shelf’s server performs and validates the action; this menu is a web simulation, not carrier USSD.</div>
-        </article>
-
-        <article className="route-panel keypad-panel">
-          <header className="route-header"><div className="route-symbol web-symbol"><Smartphone size={18} /></div><div><div className="route-overline">ROUTE A <span className="route-divider">/</span> TEXT MENU</div><h3>USSD-style web session</h3></div><span className="simulation-tag">NOT CARRIER USSD</span></header>
-          <div className="phone-stage">
-            <div className="phone-shell keypad-phone">
-              <div className="phone-camera" />
-              <div className="phone-screen">
-                <div className="phone-status"><span>9:41</span><span><Signal size={13} /> <span className="signal-bars">▮▮▮</span></span></div>
-                <div className="phone-brand"><span className="mini-mark">S</span> SHELF <span>TEXT SERVICE</span></div>
-                <div className="phone-display" data-testid="text-text-menu">
-                  <span className="screen-caption">{phoneFrame.digit ? `AGENT INPUT · ${phoneFrame.digit}` : textSession ? `SESSION ${textSession.sessionId.slice(0, 8)}` : 'TEXT MENU'}</span>
-                  {phoneFrame.typing ? <div className="menu-typing" aria-label="Menu is typing"><i /><i /><i /></div> : <pre>{textSession && !agentResults.text ? textSession.menu : phoneFrame.menu}</pre>}
-                  {phoneFrame.error && <p className="screen-error">{phoneFrame.error}</p>}
-                  {textSession?.result && !agentResults.text && <div className="screen-receipt"><b>{textSession.result.receipt.operation}</b><span>{textSession.result.receipt.message}</span><small>Receipt {textSession.result.receipt.id}</small></div>}
-                </div>
-                <div className="phone-input"><span>{phoneFrame.digit || 'Waiting for agent input'}</span><span className="cursor" /></div>
-                <div className="keypad">
-                  {['1','2','3','4','5','6','7','8','9','*','0','#'].map(key => <button key={key} className="key" onClick={() => pressDigit(key)} disabled={!textSession || textSession.ended || inputText.isPending || phoneFrame.typing} data-testid={`button-key-${key === '*' ? 'star' : key === '#' ? 'hash' : key}`}>{key}</button>)}
-                </div>
-              </div>
-              <div className="phone-home" />
-            </div>
-          </div>
-          <div className="route-actions">
-            <button className="button button-quiet" onClick={beginText} disabled={startText.isPending} data-testid="button-start-text-session">{startText.isPending ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />}Start manual session</button>
-            <span className="keypad-explain">Gemini dials *123# and chooses visible menu digits. This is a browser simulation.</span>
-          </div>
-          {sessionError && <div className="inline-error" role="alert" data-testid="status-text-session-error">{sessionError}</div>}
-          {textSession && <div className={`session-state ${textSession.error ? 'has-error' : ''}`} data-testid="status-text-session"><span>API SESSION</span><b>{textSession.screen.replace('_', ' ').toUpperCase()}</b><span>{textSession.ended ? 'ENDED' : 'ACTIVE'}</span></div>}
-        </article>
-      </div>
-    </section>
-
-  </main>
-  <ShelfLibrary embedded prompt={agentResults.web ? lastWebPrompt : promptText} onRunWeb={() => run('web')} webResult={agentResults.web} webPending={runDisabled} visualMode={agentStatus?.visualRouteMode ?? 'checking'} visualUnavailableReason={agentStatus?.visualUnavailableReason ?? null} />
-  <section className="page usage-section">
-    <div className="usage-intro"><div className="eyebrow">PROVIDER USAGE · SERVER-SIDE</div><h2>Measured model usage.</h2><p>Token counts come from Gemini usageMetadata. Estimated cost stays unknown because no rates are configured. Reset restores library records and keeps run measurements so both routes can use the same fixture.</p><button className="reset-link" onClick={() => { setTextSession(null); setSessionError(''); setRunnerError(''); setPhoneFrame({ menu: 'Start a text session or run a prompt to see the API menu.', digit: '', typing: false, error: '' }); reset.mutate(undefined, { onSuccess: () => { void queryClient.invalidateQueries({ queryKey: getGetLibraryStateQueryKey() }); void queryClient.invalidateQueries({ queryKey: getGetAgentStatusQueryKey() }); }, onError: e => setRunnerError(errorMessage(e)) }); }} disabled={reset.isPending || runAgent.isPending || Boolean(agentStatus?.runInProgress)} data-testid="button-reset-fixture">{reset.isPending ? <LoaderCircle className="spin" size={14} /> : <RotateCcw size={14} />} Reset fixture state</button></div>
-    <div className="usage-columns"><UsageCard title="TEXT-MENU PHONE" result={agentResults.text} testId="usage-text" /><UsageCard title="VISUAL WEBSITE" result={agentResults.web} testId="usage-web" /></div>
-    <div className="token-comparison" data-testid="token-comparison"><span>TOKEN REDUCTION · INPUT + OUTPUT</span><b>{tokenComparison}</b></div>
-  </section>
-  </>;
-}
-
-function AgentOutput({ result, route }: { result?: AgentRunResult; route: string }) {
-  if (!result) return <div className="agent-empty" data-testid={`agent-log-${route}`}><Sparkles size={15} /><span>Agent log appears here after a run. No transcript is pre-filled.</span></div>;
-  const routeLabel = result.routeMode === 'live'
-    ? `GEMINI LIVE · ${result.modelId}`
-    : 'SIMULATED · SCREENSHOT ROUTE UNAVAILABLE';
-  return <div className="agent-output" data-testid={`agent-log-${route}`}>
-    <div className="agent-result-head"><span className="agent-result-label">{routeLabel} <span className="run-id">{result.runId}</span></span><span className={`run-status status-${result.status}`} data-testid={`status-agent-${route}`}>{result.status}</span></div>
-    <div className="log-list">{result.log.map((entry, i) => <div key={`${i}-${entry.message}`} className={`log-entry log-${entry.kind}`} data-testid={`log-${route}-${i}`}><span className="log-mark">{entry.kind === 'success' ? '✓' : entry.kind === 'error' ? '!' : entry.kind === 'action' ? '→' : '·'}</span><span>{entry.message}</span></div>)}</div>
-    <div className={`verification ${result.verification.passed ? 'passed' : 'not-passed'}`} data-testid={`verification-${route}`}><ShieldCheck size={15} /><span><b>{result.verification.passed ? 'VERIFICATION PASSED' : 'VERIFICATION NOT PASSED'}</b>{result.verification.message}</span></div>
-  </div>;
-}
-
-function UsageCard({ title, result, testId }: { title: string; result?: AgentRunResult; testId: string }) {
-  const usage = result?.usage;
-  const simulated = result?.routeMode === 'simulated' || usage?.simulated === true;
-  const measurementStamp = !result ? 'AWAITING' : simulated ? 'SIMULATED' : 'MEASURED';
-  const measurementStampClass = !result ? 'awaiting-stamp' : simulated ? '' : 'measured-stamp';
-  const tokenCount = (total: number | null | undefined, field: 'promptTokens' | 'outputTokens' | 'cachedTokens') => {
-    if (total != null) return total.toLocaleString();
-    const calls = usage?.calls ?? [];
-    const observed = calls
-      .map(call => call[field])
-      .filter((value): value is number => typeof value === 'number');
-    if (!observed.length) return field === 'cachedTokens' && calls.length > 0 ? 'Not reported' : 'Unknown';
-    const partialTotal = observed.reduce((sum, value) => sum + value, 0);
-    const unavailable = calls.length - observed.length;
-    return `${partialTotal.toLocaleString()} observed${unavailable ? ` · ${unavailable} call${unavailable === 1 ? '' : 's'} unavailable` : ''}`;
-  };
-  const callsWithoutMetadata = usage?.calls.filter(call => call.providerUsageMetadata == null).length ?? 0;
-  const values: [string, string][] = usage ? simulated ? [
-    ['Input tokens (simulated)', '—'],
-    ['Output tokens (simulated)', '—'],
-    ['Model calls (simulated)', String(usage.modelCalls)],
-    ['Elapsed time (simulated check)', `${usage.elapsedMs} ms`],
-    ['Estimated cost (estimate)', usage.estimatedCostUsd == null ? 'Unknown' : `$${usage.estimatedCostUsd.toFixed(6)}`],
-  ] : [
-    ['Input tokens (measured)', tokenCount(usage.promptTokens, 'promptTokens')],
-    ['Output tokens (measured)', tokenCount(usage.outputTokens, 'outputTokens')],
-    ['Cached tokens (provider-reported)', tokenCount(usage.cachedTokens, 'cachedTokens')],
-    ['Model calls (measured)', String(usage.modelCalls)],
-    ['Elapsed time (measured)', `${usage.elapsedMs} ms`],
-    ['Estimated cost (estimate)', usage.estimatedCostUsd == null ? 'Unknown' : `$${usage.estimatedCostUsd.toFixed(6)}`],
-  ] : [];
-  return <article className="usage-card" data-testid={testId}>
-    <div className="usage-card-head"><span>{title}</span><span className={`simulated-stamp ${measurementStampClass}`}>{measurementStamp}</span></div>
-    {!result ? <div className="no-measurement" data-testid={`${testId}-empty`}><span className="no-measurement-mark">—</span><span><b>No measurement yet</b><small>Run this route to collect provider usageMetadata.</small></span></div> : <>
-      <div className="sim-warning"><CircleHelp size={13} />{simulated ? 'The screenshot agent did not run. No model call or browser action is represented as measured.' : `Provider usageMetadata saved per call · ${result.modelId}${callsWithoutMetadata ? ` · ${callsWithoutMetadata} call${callsWithoutMetadata === 1 ? '' : 's'} returned no usage metadata; token figures show observed partial sums.` : ''}`}</div>
-      <div className="usage-metrics">{values.map(([label, value]) => <div className="usage-metric" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-      <div className="usage-foot">Run <span>{result.runId}</span> · {result.modelId} · status {result.status}</div>
-    </>}
-  </article>;
-}
-
-function ShelfLibrary({
-  embedded = false,
-  prompt = '',
-  onRunWeb,
-  webResult,
-  webPending = false,
-  visualMode = 'checking',
-  visualUnavailableReason = null,
-}: {
-  embedded?: boolean;
-  prompt?: string;
-  onRunWeb?: () => void;
-  webResult?: AgentRunResult;
-  webPending?: boolean;
-  visualMode?: AgentStatus['visualRouteMode'] | 'checking';
-  visualUnavailableReason?: string | null;
-}) {
-  const queryClient = useQueryClient();
-  const { data: state, isLoading, isError, error, refetch } = useGetLibraryState();
-  const reserve = useReserveTitle();
-  const renew = useRenewLoan();
-  const cancel = useCancelHold();
-  const reset = useResetLibrary();
-  const [search, setSearch] = useState('');
-  const [dueBook, setDueBook] = useState('');
-  const [actionResult, setActionResult] = useState<ActionResult | null>(null);
-  const [actionError, setActionError] = useState('');
-  const dueDateQuery = useReadDueDate(dueBook, { query: { enabled: Boolean(dueBook), queryKey: getReadDueDateQueryKey(dueBook) } });
-  const books = state?.books ?? [];
-  const visibleBooks = books.filter(book => `${book.title} ${book.author} ${book.genre}`.toLowerCase().includes(search.toLowerCase()));
-  const title = (bookId: string) => books.find(book => book.id === bookId)?.title ?? bookId;
-  function refresh() { queryClient.invalidateQueries({ queryKey: getGetLibraryStateQueryKey() }); }
-  function doAction(fn: (opts: { data: { bookId: string; idempotencyKey: string } }, options: { onSuccess: (data: ActionResult) => void; onError: (e: unknown) => void }) => void, bookId: string) {
-    setActionError('');
-    fn({ data: { bookId, idempotencyKey: makeKey() } }, { onSuccess: data => { setActionResult(data); refresh(); }, onError: e => setActionError(errorMessage(e)) });
-  }
-  return <main className={`page library-page ${embedded ? 'embedded-library' : ''}`}>
-    {embedded && <section className="visual-run-heading" data-testid="visual-web-section"><div><div className="eyebrow">ROUTE B / NORMAL WEBSITE · {visualMode === 'live' ? 'LIVE SCREENSHOT LOOP' : visualMode === 'simulated' ? 'SIMULATED · CHROMIUM UNAVAILABLE' : 'CHECKING CHROMIUM'}</div><h2>Now do the same task in Shelf.</h2><p>{visualMode === 'live' ? 'Gemini sees fresh 1280 × 800 screenshots only and controls the page with screen coordinates. Actions are backed by the same verified records.' : visualMode === 'simulated' ? `This route is not being faked. It cannot run until Chromium can open this app’s /library page.${visualUnavailableReason ? ` Reason: ${visualUnavailableReason}` : ''}` : 'Checking whether Playwright Chromium can open this app’s /library page.'}</p><div className="visual-task"><span>SHARED PROMPT</span><b>{prompt}</b></div></div><button className="button button-primary" onClick={onRunWeb} disabled={visualMode !== 'live' || !prompt.trim() || webPending} data-testid="button-run-web-agent">{webPending ? <LoaderCircle className="spin" size={16} /> : <ArrowRight size={16} />}{visualMode === 'live' ? 'Run live screenshot agent' : visualMode === 'simulated' ? 'Visual route unavailable' : 'Checking browser'}</button></section>}
-    {!embedded && <div className="library-heading">
-      <div><div className="eyebrow"><span className="eyebrow-line" /> THE FICTIONAL CATALOG <span className="eyebrow-count">SHELF / LIBRARY</span></div><h1>A library built<br /><em>for real actions.</em></h1><p className="library-lede">Browse the demo collection, inspect loans and holds, and make changes to the same state used in the comparison runner.</p></div>
-      <div className="reader-card"><div className="reader-avatar">{state?.user.displayName.slice(0, 1) ?? 'R'}</div><div><span className="reader-label">SIGNED IN AS</span><b data-testid="text-library-user">{state?.user.displayName ?? (isLoading ? 'Loading reader…' : 'Demo reader')}</b><small>{state?.user.id ?? 'SHELF READER'}</small></div></div>
-    </div>}
-    {embedded && <AgentOutput result={webResult} route="web" />}
-    {isError && <div className="error-banner library-error" role="alert" data-testid="error-library"><CircleHelp size={17} />Unable to load Shelf state: {errorMessage(error)} <button className="text-button" onClick={() => refetch()} data-testid="button-retry-library">Retry</button></div>}
-    {actionError && <div className="error-banner" role="alert" data-testid="error-library-action"><CircleHelp size={17} />Action failed: {actionError}</div>}
-    {isLoading && <div className="skeleton-wrap" data-testid="status-library-loading"><div className="skeleton skeleton-title" /><div className="skeleton skeleton-row" /><div className="skeleton skeleton-row" /></div>}
-    {!isLoading && state && <>
-      <div className="library-stats">
-        <div><span>CATALOG</span><strong data-testid="state-book-count">{books.length}</strong><small>titles in fixture</small></div>
-        <div><span>ON LOAN</span><strong data-testid="state-loan-count">{state.loans.length}</strong><small>active checkouts</small></div>
-        <div><span>HOLDS</span><strong data-testid="state-hold-count">{state.holds.filter(h => h.active).length}</strong><small>active reservations</small></div>
-        <button className="button button-quiet reset-library" onClick={() => reset.mutate(undefined, { onSuccess: () => { setActionResult(null); refresh(); }, onError: e => setActionError(errorMessage(e)) })} disabled={reset.isPending} data-testid="button-reset-library">{reset.isPending ? <LoaderCircle className="spin" size={15} /> : <RotateCcw size={15} />} Reset fixture</button>
-      </div>
-      <div className="library-content-grid">
-        <section className="catalog-section">
-          <div className="catalog-top"><div><div className="eyebrow">01 / COLLECTION</div><h2>Browse the shelves</h2></div><label className="search-box"><Search size={16} /><input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Title, author, genre" aria-label="Search catalog" data-testid="input-catalog-search" /><kbd>/</kbd></label></div>
-          {visibleBooks.length === 0 ? <div className="empty-state" data-testid="empty-catalog"><BookOpen size={22} /><b>No titles match that search.</b><span>Try another title, author, or genre.</span></div> :
-            <div className="book-list">{visibleBooks.map((book, index) => {
-              const onHold = state.holds.some(h => h.bookId === book.id && h.active);
-              return <article className="book-row" key={book.id} data-testid={`book-row-${book.id}`}><div className={`book-spine spine-${index % 4}`}><BookOpen size={17} /></div><div className="book-details"><span className="book-genre">{book.genre}</span><h3>{book.title}</h3><p>{book.author}</p></div><span className={`availability availability-${book.availability}`} data-testid={`status-availability-${book.id}`}><i />{book.availability.replace('_', ' ')}</span><div className="book-action">{book.availability === 'available' && !onHold ? <button className="small-action" onClick={() => doAction(reserve.mutate, book.id)} disabled={reserve.isPending} data-testid={`button-reserve-${book.id}`}>Place hold <ArrowRight size={13} /></button> : onHold ? <span className="quiet-state">On your holds</span> : <span className="quiet-state">Not available</span>}</div></article>;
-            })}</div>}
-        </section>
-        <aside className="side-stack">
-          <section className="side-card loans-card"><div className="side-title"><div><div className="eyebrow">02 / CHECKOUTS</div><h2>Your loans</h2></div><span className="side-count">{state.loans.length}</span></div>
-            {state.loans.length === 0 ? <div className="mini-empty" data-testid="empty-loans"><Clock3 size={18} /><span>No active loans in this fixture.</span></div> : state.loans.map(loan => <div className="loan-item" key={loan.id} data-testid={`loan-row-${loan.id}`}><div><b>{title(loan.bookId)}</b><span>Due {displayDate(loan.dueDate)} · {loan.renewalsUsed}/{loan.renewalLimit} renewals used</span>{loan.renewalBlockedReason && <small className="blocked-note">{loan.renewalBlockedReason}</small>}</div><button className="mini-icon-button" onClick={() => setDueBook(loan.bookId)} aria-label={`Read due date for ${title(loan.bookId)}`} data-testid={`button-due-${loan.bookId}`}><Clock3 size={15} /></button><button className="small-action loan-renew" onClick={() => doAction(renew.mutate, loan.bookId)} disabled={renew.isPending || Boolean(loan.renewalBlockedReason)} data-testid={`button-renew-${loan.bookId}`}>Renew</button></div>)}
-            {dueBook && <div className="due-readout" data-testid="status-due-date"><div><span>DUE-DATE LOOKUP</span><button className="bare-icon" onClick={() => setDueBook('')} aria-label="Close due date"><X size={14} /></button></div>{dueDateQuery.isLoading ? 'Reading…' : dueDateQuery.isError ? `Lookup error: ${errorMessage(dueDateQuery.error)}` : dueDateQuery.data ? <><b>{dueDateQuery.data.title}</b><span>{displayDate(dueDateQuery.data.dueDate)}</span><small>{dueDateQuery.data.receipt.message}</small></> : null}</div>}
-          </section>
-          <section className="side-card holds-card"><div className="side-title"><div><div className="eyebrow">03 / QUEUE</div><h2>Your holds</h2></div><span className="side-count">{state.holds.filter(h => h.active).length}</span></div>
-            {state.holds.filter(h => h.active).length === 0 ? <div className="mini-empty" data-testid="empty-holds"><LibraryBig size={18} /><span>No active holds. Reserve an available title to begin.</span></div> : state.holds.filter(h => h.active).map(hold => <div className="hold-item" key={hold.id} data-testid={`hold-row-${hold.id}`}><div><b>{title(hold.bookId)}</b><span>Placed {displayDate(hold.placedAt)}</span></div><button className="small-action cancel-action" onClick={() => { setActionError(''); cancel.mutate({ data: { holdId: hold.id, idempotencyKey: makeKey() } }, { onSuccess: data => { setActionResult(data); refresh(); }, onError: e => setActionError(errorMessage(e)) }); }} disabled={cancel.isPending} data-testid={`button-cancel-hold-${hold.id}`}>Cancel <X size={13} /></button></div>)}
-          </section>
-        </aside>
-      </div>
-      {actionResult && <section className="receipt-panel" data-testid="status-action-receipt"><div className="receipt-icon"><Check size={17} /></div><div><span>API RECEIPT · {actionResult.receipt.operation}</span><b>{actionResult.receipt.message}</b><small>Receipt {actionResult.receipt.id} · {displayDateTime(actionResult.receipt.createdAt)}{actionResult.idempotentReplay ? ' · Idempotent replay' : ''}</small></div><button className="bare-icon" onClick={() => setActionResult(null)} aria-label="Dismiss receipt"><X size={16} /></button></section>}
-    </>}
-    <div className="library-footnote"><span><ShieldCheck size={15} /> API-backed fixture state</span><span>Actions return receipts; displayed state refreshes from Shelf.</span></div>
-  </main>;
-}
-
-function Router() {
-  return <ErrorBoundary><Switch><Route path="/"><Shell><Runner /></Shell></Route><Route path="/library"><Shell><ShelfLibrary /></Shell></Route><Route component={NotFound} /></Switch></ErrorBoundary>;
 }
 
 function App() {
-  return <QueryClientProvider client={queryClient}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [runNonce, setRunNonce] = useState(0);
+  const [visibleTextSteps, setVisibleTextSteps] = useState(0);
+  const [visibleVisualSteps, setVisibleVisualSteps] = useState(0);
+  const [textDone, setTextDone] = useState(false);
+  const [visualDone, setVisualDone] = useState(false);
+  const selected = demos.find(demo => demo.id === selectedId);
+
+  function runDemo(id: string) {
+    setSelectedId(id);
+    setVisibleTextSteps(0);
+    setVisibleVisualSteps(0);
+    setTextDone(false);
+    setVisualDone(false);
+    setRunNonce(value => value + 1);
+  }
+
+  useEffect(() => {
+    if (!selected) return;
+    const timers: number[] = [];
+    selected.text.steps.forEach((_, index) => {
+      timers.push(window.setTimeout(() => setVisibleTextSteps(index + 1), 420 * (index + 1)));
+    });
+    timers.push(window.setTimeout(() => setTextDone(true), 420 * (selected.text.steps.length + 1)));
+    selected.visual.steps.forEach((_, index) => {
+      timers.push(window.setTimeout(() => setVisibleVisualSteps(index + 1), 570 * (index + 1)));
+    });
+    timers.push(window.setTimeout(() => setVisualDone(true), 570 * (selected.visual.steps.length + 1)));
+    return () => timers.forEach(window.clearTimeout);
+  }, [selectedId, runNonce]);
+
+  const activeKey = selected && visibleVisualSteps > 0
+    ? keys[(visibleVisualSteps - 1) % keys.length]
+    : '';
+  const frierenAdded = selected?.id === 'frieren' && visualDone;
+
+  return <div className="demo-shell">
+    <header className="demo-topbar">
+      <div className="demo-brand">QURUS <small>WATCHLIST ROUTE DEMO</small></div>
+      <div className="top-status">SCRIPTED DEMO <span aria-hidden="true">/</span> NO MODEL OR DATA API CALLS</div>
+    </header>
+
+    <main>
+      <section className="hero">
+        <div>
+          <div className="eyebrow">CLASSROOM DEMO · FICTIONAL STREAMING APP</div>
+          <h1>One task.<span>Two routes.</span></h1>
+        </div>
+        <div className="hero-note">
+          Choose one fixed prompt and watch the same fictional Watchlist task play through two interface styles.
+          <div className="hero-figure"><Figure /><span>All anime titles, accounts, actions, transcripts, and counters are fictional demo data.</span></div>
+        </div>
+      </section>
+
+      <section className="prompt-section" aria-labelledby="prompt-title">
+        <div className="section-title">
+          <div><div className="eyebrow">01 / PICK A SCRIPT</div><h2 id="prompt-title">Choose a demo prompt</h2></div>
+          <p>Fixed prompts only · no free-typed tasks</p>
+        </div>
+        <div className="prompt-list">
+          {demos.map((demo, index) => <button
+            key={demo.id}
+            className="prompt-button"
+            onClick={() => runDemo(demo.id)}
+            aria-pressed={selectedId === demo.id}
+            data-testid={`demo-prompt-${demo.id}`}
+          >
+            <span className="prompt-index">0{index + 1}</span>
+            <span className="prompt-copy">{demo.prompt}<span className="prompt-status">{demo.refused ? 'Scripted refusal' : 'Scripted result'}</span></span>
+          </button>)}
+        </div>
+      </section>
+
+      <section className="routes-section" aria-labelledby="routes-title">
+        <div className="routes-heading">
+          <div><div className="eyebrow">02 / SAME PROMPT, TWO INTERFACES</div><h2 id="routes-title">The scripted comparison</h2></div>
+          <button className="replay-button" disabled={!selected} onClick={() => selected && runDemo(selected.id)} data-testid="replay-demo">Replay both routes</button>
+        </div>
+
+        <div className="route-grid">
+          <article className="route-column" aria-label="Scripted text and USSD route">
+            <div className="route-title"><h3>TEXT / USSD-STYLE</h3><span className="demo-stamp">SIMULATION · DEMO DATA</span></div>
+            <div className="phone">
+              <div className="phone-camera" />
+              <div className="phone-screen">
+                <div className="phone-status"><span>9:41</span><span>•••</span></div>
+                <div className="phone-heading"><strong>Messages</strong><span>TEXT MENU · NOT CARRIER USSD</span></div>
+                <div className="chat-log" role="log" aria-live="polite" data-testid="text-route-log">
+                  {!selected && <div className="chat-note">Choose a demo prompt above to play its scripted text-menu session.</div>}
+                  {selected && <>
+                    <div className="chat-note chat-prompt">{selected.prompt}</div>
+                    <div className="chat-step-label">Watchlist demo menu</div>
+                    {selected.text.steps.slice(0, visibleTextSteps).map((step, index) => <div className="chat-note" key={`${selected.id}-text-${index}`}>{step}</div>)}
+                    {!textDone && <div className="chat-note typing-dots" aria-label="Script animating"><i /><i /><i /></div>}
+                    {textDone && <div className={`chat-note ${selected.refused ? '' : 'chat-result'}`}><strong>{selected.refused ? 'REFUSAL' : 'SCRIPTED RESULT'}</strong><br />{selected.text.reply}</div>}
+                  </>}
+                </div>
+              </div>
+              <div className="phone-foot" />
+            </div>
+            <div className="script-output">
+              <h4>Text route · scripted menu choices</h4>
+              {selected ? selected.text.steps.slice(0, visibleTextSteps).map((step, index) => <div className="script-step" key={`t-${index}`}><b>{String(index + 1).padStart(2, '0')}</b><span>{step}</span></div>) : <div className="idle-note">No transcript is prefilled.<br />Select a fixed prompt to begin.</div>}
+              {selected && textDone && <div className={`script-reply ${selected.refused ? 'refusal' : ''}`}><strong>{selected.refused ? 'Refused · no changes' : 'Scripted result'}</strong>{selected.text.reply}</div>}
+            </div>
+            <DemoUsage route={textDone ? selected?.text : undefined} title="TEXT ROUTE COUNTERS" />
+          </article>
+
+          <article className="route-column" aria-label="Scripted visual web route with phone keypad">
+            <div className="route-title"><h3>VISUAL / WEB</h3><span className="demo-stamp">SIMULATION · DEMO DATA</span></div>
+            <div className="phone">
+              <div className="phone-camera" />
+              <div className="phone-screen">
+                <div className="phone-status"><span>9:41</span><span>•••</span></div>
+                <div className="watchlist-screen">
+                  <div className="watchlist-top"><strong>WATCHLIST</strong><span>DEMO PROFILE</span></div>
+                  <div className="watchlist-profile">MY LIST · FICTIONAL TITLES</div>
+                  <div className={`anime-row ${selected?.id === 'frieren' ? 'active' : ''}`}>
+                    <div className="anime-art"><AnimeMark /></div>
+                    <div className="anime-info"><b>Frieren</b><span>{frierenAdded ? 'Saved to My List' : 'Discover · Fantasy'}</span></div>
+                    <span className="anime-action">{frierenAdded ? 'SAVED' : 'ADD'}</span>
+                  </div>
+                  <div className={`anime-row ${selected?.id === 'continue' ? 'active' : ''}`}>
+                    <div className="anime-art"><Figure /></div>
+                    <div className="anime-info"><b>Jujutsu Kaisen</b><span>My List · Episode 12</span></div>
+                    <span className="anime-action">{selected?.id === 'continue' && visualDone ? 'PLAY' : 'OPEN'}</span>
+                  </div>
+                  <div className="anime-row">
+                    <div className="anime-art"><AnimeMark /></div>
+                    <div className="anime-info"><b>Spy x Family</b><span>My List · Episode 3</span></div>
+                    <span className="anime-action">OPEN</span>
+                  </div>
+                  <div className="anime-row">
+                    <div className="anime-art"><Figure /></div>
+                    <div className="anime-info"><b>Mob Psycho 100</b><span>My List · Episode 4</span></div>
+                    <span className="anime-action">OPEN</span>
+                  </div>
+                  <div className="keypad-label">Illustrative input pad · scripted</div>
+                  <div className="keypad" aria-label="Illustrative demo keypad">
+                    {keys.map(key => <span className={`key ${key === activeKey ? 'active' : ''}`} key={key}>{key}</span>)}
+                  </div>
+                </div>
+              </div>
+              <div className="phone-foot" />
+            </div>
+            <div className="script-output">
+              <h4>Visual route · scripted screen actions</h4>
+              {selected ? selected.visual.steps.slice(0, visibleVisualSteps).map((step, index) => <div className="script-step" key={`v-${index}`}><b>{String(index + 1).padStart(2, '0')}</b><span>{step}</span></div>) : <div className="idle-note">A fictional Watchlist screen.<br />Select a prompt to play visual steps.</div>}
+              {selected && visualDone && <div className={`script-reply ${selected.refused ? 'refusal' : ''}`}><strong>{selected.refused ? 'Refused · no changes' : 'Scripted result'}</strong>{selected.visual.reply}</div>}
+            </div>
+            <DemoUsage route={visualDone ? selected?.visual : undefined} title="VISUAL ROUTE COUNTERS" />
+          </article>
+        </div>
+      </section>
+
+      <section className="explainer">
+        <h2>HONEST STATUS</h2>
+        <div>
+          <p>We tried wiring this to the Gemini API but couldn't get it working in time, so this demo runs on scripted demo data. The architecture (text/USSD route vs visual route, credit counters) is what we are demonstrating.</p>
+          <p className="hypothesis">The claim that USSD saves credits is a hypothesis, not a measured result. Every transcript and counter above is pre-written demo data.</p>
+        </div>
+      </section>
+    </main>
+
+    <footer className="demo-foot"><span>QURUS · FICTIONAL WATCHLIST</span><span>No model calls · no account, payment, or streaming service is connected.</span></footer>
+  </div>;
 }
 
 export default App;
