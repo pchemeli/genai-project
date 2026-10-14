@@ -61,15 +61,30 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .phone-status { height: 28px; display: flex; justify-content: space-between; align-items: center; padding: 0 13px; border-bottom: 1px solid var(--line); font-size: 8px; }
 .phone-heading { display: flex; justify-content: space-between; align-items: center; min-height: 43px; padding: 0 13px; border-bottom: 1px solid var(--line); font-size: 9px; font-weight: 700; }
 .phone-heading span:last-child { color: var(--muted); font-size: 7px; font-weight: 400; }
-.chat-log { display: flex; flex: 1; flex-direction: column; gap: 9px; padding: 14px 10px; overflow-y: auto; }
-.chat-note { align-self: flex-start; max-width: 87%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 12px 12px 12px 3px; font-size: 9px; line-height: 1.55; white-space: pre-wrap; }
-.chat-prompt { align-self: flex-end; background: var(--soft); border-radius: 12px 12px 3px 12px; }
-.chat-step-label { margin: 2px 0 -5px 4px; color: var(--muted); font-size: 7px; text-transform: uppercase; letter-spacing: .08em; }
-.typing-dots { display: flex; gap: 4px; padding: 7px; width: max-content; }
-.typing-dots i { width: 4px; height: 4px; display: block; background: #444; border-radius: 50%; animation: blink .75s infinite alternate; }
-.typing-dots i:nth-child(2) { animation-delay: .18s; }
-.typing-dots i:nth-child(3) { animation-delay: .36s; }
-@keyframes blink { to { opacity: .22; transform: translateY(-2px); } }
+.agent-sim-label { min-height: 22px; display: flex; align-items: center; padding: 0 13px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 7px; letter-spacing: .06em; }
+.ussd-session { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.dial-screen { display: flex; flex: 1; min-height: 0; flex-direction: column; align-items: center; padding: 16px 18px 12px; }
+.dial-screen-title { align-self: flex-start; color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.dial-display { width: 100%; min-height: 43px; display: flex; justify-content: space-between; align-items: center; margin: 9px 0 10px; border-bottom: 1px solid var(--ink); font-size: 18px; letter-spacing: .1em; }
+.dial-display small { color: var(--muted); font-size: 7px; letter-spacing: .08em; }
+.dial-placeholder, .reply-placeholder { display: inline-block; min-width: 10px; }
+.dial-pad { display: grid; width: min(100%, 180px); grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.dial-key { min-height: 24px; display: grid; place-items: center; border: 1px solid var(--line); font-size: 8px; }
+.dial-status { min-height: 20px; display: flex; align-items: center; margin-top: auto; color: var(--muted); font-size: 7px; text-align: center; }
+.dial-status.dialing { color: var(--ink); animation: dial-pulse .45s ease-in-out infinite alternate; }
+@keyframes dial-pulse { to { opacity: .35; } }
+.ussd-menu { display: flex; flex: 1; min-height: 0; flex-direction: column; padding: 13px 14px 11px; }
+.ussd-menu-title { min-height: 30px; display: flex; align-items: center; border-bottom: 1px solid var(--ink); font-size: 8px; font-weight: 700; letter-spacing: .08em; }
+.ussd-options { max-height: 220px; overflow-y: auto; overscroll-behavior: contain; margin: 7px 0; padding: 0; list-style: none; scrollbar-width: thin; }
+.ussd-option { min-height: 33px; display: flex; align-items: center; gap: 9px; padding: 6px 7px; border-bottom: 1px solid var(--line); color: #333; font-size: 8px; line-height: 1.4; transition: background .12s, color .12s; }
+.ussd-option.highlighted { background: var(--ink); color: #fff; }
+.ussd-option-key { min-width: 15px; font-weight: 700; }
+.ussd-reply { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; min-height: 43px; margin-top: auto; border-top: 1px solid var(--line); padding-top: 8px; font-size: 8px; }
+.ussd-reply output { min-height: 23px; padding: 5px 7px; border: 1px solid var(--ink); font-size: 9px; }
+.ussd-reply small { color: var(--muted); font-size: 7px; }
+.ussd-result { display: flex; flex: 1; flex-direction: column; justify-content: center; padding: 24px; font-size: 10px; line-height: 1.7; }
+.ussd-result-label { padding-bottom: 8px; border-bottom: 1px solid var(--ink); font-size: 8px; font-weight: 700; letter-spacing: .07em; }
+.ussd-result p { margin: 12px 0 0; }
 .phone-foot { height: 22px; width: 62px; border: 1px solid var(--ink); border-radius: 20px; margin: 9px auto 1px; }
 
 .watchlist-screen { padding: 0 12px 12px; }
